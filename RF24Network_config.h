@@ -64,7 +64,9 @@
     //#define DISABLE_USER_PAYLOADS 
 
     /** Enable tracking of success and failures for all transmissions, routed and user initiated */
-    //#define ENABLE_NETWORK_STATS
+    #if defined (__linux)
+      #define ENABLE_NETWORK_STATS
+    #endif
 
     /** Debug Options */
     //#define SERIAL_DEBUG
