@@ -92,7 +92,7 @@
  * @code
  * uint8_t return_type = network.update();
  * if(return_type == EXTERNAL_DATA_TYPE){
- *     size_t size = network.frag_ptr->message_size;	
+ *     uint16_t size = network.frag_ptr->message_size;	
  *     memcpy(&myDataBuffer,network.frag_ptr->message_buffer,network.frag_ptr->message_size);
  * }		
  * @endcode
@@ -160,9 +160,11 @@
 #define USER_TX_TO_PHYSICAL_ADDRESS 2  //no network ACK
 #define USER_TX_TO_LOGICAL_ADDRESS 3   // network ACK
 #define USER_TX_MULTICAST 4
+
 #define MAX_FRAME_SIZE 32   //Size of individual radio frames
+#define FRAME_HEADER_SIZE 10 //Size of RF24Network frames - data
 
-
+#define USE_CURRENT_CHANNEL 255 // Use current radio channel when setting up the network
 
 class RF24;
 
@@ -255,7 +257,7 @@ struct RF24NetworkHeader
  struct RF24NetworkFrame
 {
   RF24NetworkHeader header; /**< Header which is sent with each message */
-  size_t message_size; /**< The size in bytes of the payload length */
+  uint16_t message_size; /**< The size in bytes of the payload length */
   
   /**
   * On Arduino, the message buffer is just a pointer, and can be pointed to any memory location.
@@ -294,7 +296,7 @@ struct RF24NetworkHeader
    * Frames are used internally and by external systems. See RF24NetworkHeader.
    */
 #if defined (RF24_LINUX)   
-  RF24NetworkFrame(RF24NetworkHeader& _header, const void* _message = NULL, size_t _len = 0) :
+  RF24NetworkFrame(RF24NetworkHeader& _header, const void* _message = NULL, uint16_t _len = 0) :
                   header(_header), message_size(_len) {
     if (_message && _len) {
       memcpy(message_buffer,_message,_len);
@@ -351,31 +353,33 @@ public:
   RF24Network( RF24& _radio );
 
   /**
-   * Bring up the network.
-   * Calling begin sets up the radio frequency/channel and configures the address, which designates the location of the node within RF24Network topology.
+   * Bring up the network using the current radio frequency/channel.
+   * Calling begin brings up the network, and configures the address, which designates the location of the node within RF24Network topology.
    * @note Node addresses are specified in Octal format, see <a href=Addressing.html>RF24Network Addressing</a> for more information.
    * @warning Be sure to 'begin' the radio first.
    *
-   * **Example 1:** Begin on channel 90 with address 0 (master node)
+   * **Example 1:** Begin on current radio channel with address 0 (master node)
    * @code
-   * network.begin(90,0);
+   * network.begin(00);
    * @endcode
-   * **Example 2:** Begin on channel 90 with address 01 (child of master)
+   * **Example 2:** Begin with address 01 (child of master)
    * @code
-   * network.begin(90,01);
+   * network.begin(01);
    * @endcode
-   * **Example 3:** Begin on channel 90 with address 011 (child of 01, grandchild of master)
+   * **Example 3:** Begin with address 011 (child of 01, grandchild of master)
    * @code
-   * network.begin(90,011);
+   * network.begin(011);
    * @endcode   
    *
-   * @param _channel The RF channel to operate on
+   * @see begin(uint8_t _channel, uint16_t _node_address )
    * @param _node_address The logical address of this node
    *
    */
-  void begin(uint8_t _channel, uint16_t _node_address );
-  
-  
+   
+  inline void begin(uint16_t _node_address){
+	  begin(USE_CURRENT_CHANNEL,_node_address);
+  }
+
   /**
    * Main layer loop
    *
@@ -405,7 +409,7 @@ public:
    *
    * @param[out] header The header (envelope) of the next message
    */
-  size_t peek(RF24NetworkHeader& header);
+  uint16_t peek(RF24NetworkHeader& header);
 
   /**
    * Read a message
@@ -427,7 +431,7 @@ public:
    * @param maxlen The largest message size which can be held in @p message
    * @return The total number of bytes copied into @p message
    */
-  size_t read(RF24NetworkHeader& header, void* message, size_t maxlen);
+  uint16_t read(RF24NetworkHeader& header, void* message, uint16_t maxlen);
 
   /**
    * Send a message
@@ -448,7 +452,7 @@ public:
    * @param len The size of the message
    * @return Whether the message was successfully received
    */
-  bool write(RF24NetworkHeader& header,const void* message, size_t len);
+  bool write(RF24NetworkHeader& header,const void* message, uint16_t len);
 
   /**@}*/
   /**
@@ -481,6 +485,7 @@ public:
 	* This option is used to override the defaults, and create custom multicast groups that all share a single
 	* address. <br> 
 	* The level should be specified in decimal format 1-6 <br>
+	* @see multicastRelay
 	* @param level Levels 1 to 6 are available. All nodes at the same level will receive the same
 	* messages if in range. Messages will be routed in order of level, low to high by default, with the
 	* master node (00) at multicast Level 0
@@ -492,6 +497,7 @@ public:
 	* Enabling this will allow this node to automatically forward received multicast frames to the next highest
 	* multicast level. Duplicate frames are filtered out, so multiple forwarding nodes at the same level should
 	* not interfere. Forwarded payloads will also be received.
+	* @see multicastLevel
 	*/
 	
 	bool multicastRelay;
@@ -535,7 +541,7 @@ public:
    *  For advanced operation of the network
    */
   /**@{*/
-   
+
   /**
    * Return the number of failures and successes for all transmitted payloads, routed or sent directly  
    * @note This needs to be enabled via #define ENABLE_NETWORK_STATS in RF24Network_config.h
@@ -557,13 +563,14 @@ public:
    * Multicasting is arranged in levels, with all nodes on the same level listening to the same address  
    * Levels are assigned by network level ie: nodes 01-05: Level 1, nodes 011-055: Level 2
    * @see multicastLevel
+   * @see multicastRelay
    * @param message Pointer to memory where the message is located
    * @param len The size of the message
    * @param level Multicast level to broadcast to
    * @return Whether the message was successfully sent
    */
    
-   bool multicast(RF24NetworkHeader& header,const void* message, size_t len, uint8_t level);
+   bool multicast(RF24NetworkHeader& header,const void* message, uint16_t len, uint8_t level);
    
 	
    #endif
@@ -573,7 +580,7 @@ public:
    * The same as write, but a physical address is specified as the last option.
    * The payload will be written to the physical address, and routed as necessary by the recipient
    */
-   bool write(RF24NetworkHeader& header,const void* message, size_t len, uint16_t writeDirect);
+   bool write(RF24NetworkHeader& header,const void* message, uint16_t len, uint16_t writeDirect);
 
    /**
    * Sleep this node - For AVR devices only
@@ -618,7 +625,38 @@ public:
     * @return True if a supplied address is valid
 	*/
    bool is_valid_address( uint16_t node );
-   
+
+ /**@}*/
+  /**
+   * @name Deprecated
+   *
+   *  Maintained for backwards compatibility
+   */
+  /**@{*/  
+  
+  /**
+   * Bring up the network on a specific radio frequency/channel.
+   * @note Use radio.setChannel() to configure the radio channel
+   *
+   * **Example 1:** Begin on channel 90 with address 0 (master node)
+   * @code
+   * network.begin(90,0);
+   * @endcode
+   * **Example 2:** Begin on channel 90 with address 01 (child of master)
+   * @code
+   * network.begin(90,01);
+   * @endcode
+   * **Example 3:** Begin on channel 90 with address 011 (child of 01, grandchild of master)
+   * @code
+   * network.begin(90,011);
+   * @endcode   
+   *
+   * @param _channel The RF channel to operate on
+   * @param _node_address The logical address of this node
+   *
+   */
+  void begin(uint8_t _channel, uint16_t _node_address );  
+  
   /**@}*/
   /**
    * @name External Applications/Systems
@@ -631,9 +669,28 @@ public:
   
   uint8_t frame_buffer[MAX_FRAME_SIZE];   
 
+  /** 
+   * **Linux** <br>
+   * Data with a header type of EXTERNAL_DATA_TYPE will be loaded into a separate queue.
+   * The data can be accessed as follows:
+   * @code
+   * RF24NetworkFrame f;
+   * while(network.external_queue.size() > 0){
+   *   f = network.external_queue.front();
+   *   uint16_t dataSize = f.message_size;
+   *   //read the frame message buffer
+   *   memcpy(&myBuffer,&f.message_buffer,dataSize);
+   *   network.external_queue.pop();
+   * }
+   * @endcode
+   */
+  #if defined (RF24_LINUX)
+    std::queue<RF24NetworkFrame> external_queue;
+  #endif
   
   #if !defined ( DISABLE_FRAGMENTATION ) &&  !defined (RF24_LINUX)
   /**
+  * **ARDUINO** <br>
   * The frag_ptr is only used with Arduino (not RPi/Linux) and is mainly used for external data systems like RF24Ethernet. When
   * an EXTERNAL_DATA payload type is received, and returned from network.update(), the frag_ptr will always point to the starting
   * memory location of the received frame. <br>This is used by external data systems (RF24Ethernet) to immediately copy the received
@@ -644,7 +701,7 @@ public:
  * @code
  * uint8_t return_type = network.update();
  * if(return_type == EXTERNAL_DATA_TYPE){
- *     size_t size = network.frag_ptr->message_size;	
+ *     uint16_t size = network.frag_ptr->message_size;	
  *     memcpy(&myDataBuffer,network.frag_ptr->message_buffer,network.frag_ptr->message_size);
  * }		
  * @endcode  
@@ -685,7 +742,7 @@ private:
   uint16_t direct_child_route_to( uint16_t node );
   //uint8_t pipe_to_descendant( uint16_t node );
   void setup_address(void);
-  bool _write(RF24NetworkHeader& header,const void* message, size_t len, uint16_t writeDirect);
+  bool _write(RF24NetworkHeader& header,const void* message, uint16_t len, uint16_t writeDirect);
     
   struct logicalToPhysicalStruct{
 	uint16_t send_node; 
@@ -710,7 +767,7 @@ private:
 
   #if defined (RF24_LINUX)
     std::queue<RF24NetworkFrame> frame_queue;
-    std::map<std::pair<uint16_t, uint16_t>, RF24NetworkFrame> frameFragmentsCache;
+	std::map< uint16_t, RF24NetworkFrame> frameFragmentsCache;
     bool appendFragmentToFrame(RF24NetworkFrame frame);
   
   #else
